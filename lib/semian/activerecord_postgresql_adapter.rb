@@ -27,12 +27,6 @@ module Semian
     include Semian::Adapter
     include Semian::ActiveRecordAdapter
 
-    class << self
-      def prepended(base)
-        base.extend(Semian::ActiveRecordAdapter::ClassMethods)
-      end
-    end
-
     def with_resource_timeout(_temp_timeout)
       # Resource timeouts aren't possible with PostgreSQL because there is no
       # IO level timeout configuration, so we just yield.

@@ -5,33 +5,15 @@ require "active_record"
 
 module Semian
   module ActiveRecordAdapter
-    QUERY_ALLOWLIST = %r{\A(?:/\*.*?\*/)?\s*(ROLLBACK|COMMIT|RELEASE\s+SAVEPOINT)}i
-
-    module ClassMethods
-      def query_allowlisted?(sql, *)
-        # COMMIT, ROLLBACK
-        tx_command_statement = sql.end_with?("T", "K")
-
-        # RELEASE SAVEPOINT. Nesting past _3 levels won't get bypassed.
-        # Active Record does not send trailing spaces or `;`, so we are in the realm of hand crafted queries here.
-        savepoint_statement = sql.end_with?("_1", "_2")
-        unclear = sql.end_with?(" ", ";")
-
-        if !tx_command_statement && !savepoint_statement && !unclear
-          false
-        else
-          QUERY_ALLOWLIST.match?(sql)
-        end
-      rescue ArgumentError
-        return false unless sql.valid_encoding?
-
-        raise
-      end
-    end
+    TRANSACTION_CLOSING_METHODS = [
+      :commit_db_transaction,
+      :exec_rollback_db_transaction,
+      :exec_rollback_to_savepoint,
+      :release_savepoint,
+    ].freeze
 
     class << self
       def included(base)
-        base.extend(ClassMethods)
         base.class_eval do
           attr_reader(:raw_semian_options, :semian_identifier)
         end
@@ -56,8 +38,6 @@ module Semian
 
     if ActiveRecord.version >= Gem::Version.new("8.2.a")
       def execute_intent(intent)
-        return super if self.class.query_allowlisted?(intent.processed_sql)
-
         result = nil
         delivered_error = nil
 
@@ -82,12 +62,18 @@ module Semian
       end
     else
       def raw_execute(sql, *args, **kwargs, &block)
-        if self.class.query_allowlisted?(sql)
-          super
+        acquire_semian_resource(adapter: semian_adapter_name, scope: :query) do
+          super(sql, *args, **kwargs, &block)
+        end
+      end
+    end
+
+    TRANSACTION_CLOSING_METHODS.each do |method|
+      define_method(method) do |*args, **kwargs, &block|
+        if resource_already_acquired?
+          super(*args, **kwargs, &block)
         else
-          acquire_semian_resource(adapter: semian_adapter_name, scope: :query) do
-            super(sql, *args, **kwargs, &block)
-          end
+          mark_resource_as_acquired { super(*args, **kwargs, &block) }
         end
       end
     end

@@ -11,8 +11,6 @@ inherit_gem:
 
 AllCops:
   NewCops: enable
-  Exclude:
-    - test/allow_list_bench.rb
 
 Layout/LineLength:
   Exclude:

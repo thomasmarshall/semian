@@ -278,56 +278,66 @@ module ActiveRecordAdapterSharedTests
     end
   end
 
-  def test_semian_allows_rollback
-    @adapter.execute("START TRANSACTION;")
+  def test_semian_allows_commit_db_transaction
+    @adapter.begin_db_transaction
 
     adapter_resource.acquire do
-      @adapter.execute("ROLLBACK")
+      @adapter.commit_db_transaction
     end
   end
 
-  def test_semian_allows_rollback_with_marginalia
-    @adapter.execute("START TRANSACTION;")
+  def test_semian_allows_rollback_db_transaction
+    @adapter.begin_db_transaction
 
     adapter_resource.acquire do
-      @adapter.execute("/*foo:bar*/ ROLLBACK")
+      @adapter.exec_rollback_db_transaction
     end
-  end
-
-  def test_semian_allows_commit
-    @adapter.execute("START TRANSACTION;")
-
-    adapter_resource.acquire do
-      @adapter.execute("COMMIT")
-    end
-  end
-
-  def test_query_allowlisted_returns_false_for_binary_sql
-    binary_query = File.read(File.expand_path("../../fixtures/binary.sql", __FILE__))
-
-    refute(adapter_class.query_allowlisted?(binary_query))
   end
 
   def test_semian_allows_release_savepoint
-    @adapter.execute("START TRANSACTION;")
-    @adapter.execute("SAVEPOINT active_record_2;")
+    @adapter.begin_db_transaction
+    @adapter.create_savepoint("active_record_1")
 
     adapter_resource.acquire do
-      @adapter.execute("RELEASE SAVEPOINT active_record_2")
+      @adapter.release_savepoint("active_record_1")
     end
 
-    @adapter.execute("ROLLBACK;")
+    @adapter.exec_rollback_db_transaction
   end
 
   def test_semian_allows_rollback_to_savepoint
-    @adapter.execute("START TRANSACTION;")
-    @adapter.execute("SAVEPOINT active_record_1;")
+    @adapter.begin_db_transaction
+    @adapter.create_savepoint("active_record_1")
 
     adapter_resource.acquire do
-      @adapter.execute("ROLLBACK TO SAVEPOINT active_record_1")
+      @adapter.rollback_to_savepoint("active_record_1")
     end
 
-    @adapter.execute("ROLLBACK")
+    @adapter.exec_rollback_db_transaction
+  end
+
+  def test_semian_allows_commit_with_trailing_query_comment
+    transformer = ->(sql, _adapter) { "#{sql} /*application:semian*/" }
+    ActiveRecord.query_transformers << transformer
+    @adapter.begin_db_transaction
+
+    adapter_resource.acquire do
+      @adapter.commit_db_transaction
+    end
+  ensure
+    ActiveRecord.query_transformers.delete(transformer)
+  end
+
+  def test_semian_does_not_allow_hand_written_commit
+    @adapter.begin_db_transaction
+
+    adapter_resource.acquire do
+      assert_raises(adapter_class::ResourceBusyError) do
+        @adapter.execute("COMMIT")
+      end
+    end
+
+    @adapter.exec_rollback_db_transaction
   end
 
   def test_circuit_open_errors_do_not_trigger_the_circuit_breaker

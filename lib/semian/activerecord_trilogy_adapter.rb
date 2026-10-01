@@ -26,12 +26,6 @@ module Semian
     include Semian::Adapter
     include Semian::ActiveRecordAdapter
 
-    class << self
-      def prepended(base)
-        base.extend(Semian::ActiveRecordAdapter::ClassMethods)
-      end
-    end
-
     def with_resource_timeout(temp_timeout)
       if @raw_connection.nil?
         prev_read_timeout = @config[:read_timeout] || 0
